@@ -18,6 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { type InsertWaitlist, insertWaitlistSchema } from "@shared/schema";
 
+interface WaitlistCount {
+  count: number;
+}
+
 export default function Home() {
   const { toast } = useToast();
   const [submitted, setSubmitted] = useState(false);
@@ -30,7 +34,7 @@ export default function Home() {
     },
   });
 
-  const { data: waitlistCount } = useQuery({
+  const { data: waitlistCount } = useQuery<WaitlistCount>({
     queryKey: ["/api/waitlist/count"],
   });
 
