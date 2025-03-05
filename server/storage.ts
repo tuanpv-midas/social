@@ -32,6 +32,7 @@ export interface IStorage {
   getUserArticles(userId: number): Promise<Article[]>;
   updateArticle(id: number, data: Partial<Article>): Promise<Article>;
   incrementArticleViews(id: number): Promise<void>;
+  getAllArticles(): Promise<Article[]>;
 
   // Social features
   followUser(followerId: number, followingId: number): Promise<void>;
@@ -118,6 +119,22 @@ class Storage implements IStorage {
       .update(articles)
       .set({ views: sql`${articles.views} + 1` })
       .where(eq(articles.id, id));
+  }
+
+  async getAllArticles(): Promise<Article[]> {
+    const result = await db
+      .select({
+        article: articles,
+        author: users,
+      })
+      .from(articles)
+      .innerJoin(users, eq(users.id, articles.authorId))
+      .orderBy(desc(articles.createdAt));
+
+    return result.map(r => ({
+      ...r.article,
+      author: r.author,
+    }));
   }
 
   // Social features

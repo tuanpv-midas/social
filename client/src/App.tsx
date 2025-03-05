@@ -7,6 +7,7 @@ import Home from "@/pages/home";
 import Login from "@/pages/auth/login";
 import Register from "@/pages/auth/register";
 import ArticlePage from "@/pages/articles/[id]";
+import NewArticle from "@/pages/articles/new";
 import ProfilePage from "@/pages/profile/[id]";
 import { Nav } from "@/components/nav";
 
@@ -18,6 +19,7 @@ function Router() {
         <Route path="/" component={Home} />
         <Route path="/auth/login" component={Login} />
         <Route path="/auth/register" component={Register} />
+        <Route path="/articles/new" component={NewArticle} />
         <Route path="/articles/:id" component={ArticlePage} />
         <Route path="/profile/:id" component={ProfilePage} />
         <Route component={NotFound} />

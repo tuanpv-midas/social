@@ -79,6 +79,50 @@ export async function registerRoutes(app: Express) {
     res.json(user);
   });
 
+  // Article management
+  app.post("/api/articles", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const authorId = (req.user as any).id;
+      const { title, content } = req.body;
+
+      const article = await storage.createArticle({
+        title,
+        content,
+        authorId,
+        status: "published",
+      });
+
+      res.json(article);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/articles", async (req, res) => {
+    try {
+      const articles = await storage.getAllArticles();
+      res.json(articles);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/articles/:id", async (req, res) => {
+    try {
+      const articleId = parseInt(req.params.id);
+      const article = await storage.getArticleById(articleId);
+      if (!article) {
+        return res.status(404).json({ message: "Article not found" });
+      }
+      res.json(article);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Social features
   app.post("/api/users/:id/follow", async (req, res) => {
     try {
