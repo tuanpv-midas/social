@@ -79,6 +79,176 @@ export async function registerRoutes(app: Express) {
     res.json(user);
   });
 
+  // Social features
+  app.post("/api/users/:id/follow", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const followerId = (req.user as any).id;
+      const followingId = parseInt(req.params.id);
+
+      await storage.followUser(followerId, followingId);
+      res.json({ message: "Successfully followed user" });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/users/:id/unfollow", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const followerId = (req.user as any).id;
+      const followingId = parseInt(req.params.id);
+
+      await storage.unfollowUser(followerId, followingId);
+      res.json({ message: "Successfully unfollowed user" });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/users/:id/followers", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const followers = await storage.getFollowers(userId);
+      res.json(followers);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/users/:id/following", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const following = await storage.getFollowing(userId);
+      res.json(following);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Comments
+  app.post("/api/articles/:id/comments", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const articleId = parseInt(req.params.id);
+      const { content, parentId } = req.body;
+
+      const comment = await storage.createComment({
+        content,
+        articleId,
+        userId,
+        parentId: parentId || null,
+      });
+      res.json(comment);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/articles/:id/comments", async (req, res) => {
+    try {
+      const articleId = parseInt(req.params.id);
+      const comments = await storage.getArticleComments(articleId);
+      res.json(comments);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/comments/:id/like", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const commentId = parseInt(req.params.id);
+      await storage.likeComment(commentId);
+      res.json({ message: "Comment liked successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Bookmarks
+  app.post("/api/articles/:id/bookmark", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const articleId = parseInt(req.params.id);
+
+      await storage.addBookmark(userId, articleId);
+      res.json({ message: "Article bookmarked successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/articles/:id/bookmark", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const articleId = parseInt(req.params.id);
+
+      await storage.removeBookmark(userId, articleId);
+      res.json({ message: "Bookmark removed successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/me/bookmarks", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const bookmarks = await storage.getUserBookmarks(userId);
+      res.json(bookmarks);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Reading History
+  app.post("/api/articles/:id/read", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const articleId = parseInt(req.params.id);
+
+      await storage.addToReadingHistory(userId, articleId);
+      await storage.incrementArticleViews(articleId);
+      res.json({ message: "Reading history updated successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/me/reading-history", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const history = await storage.getUserReadingHistory(userId);
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/waitlist", async (req, res) => {
     try {
       const data = insertWaitlistSchema.parse(req.body);
