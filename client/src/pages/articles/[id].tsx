@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { type Article, type Comment, type User } from "@shared/schema";
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { MessageSquare, Bookmark, Heart } from "lucide-react";
+import { MessageSquare, Heart, AtSign } from "lucide-react";
 
 interface ArticleResponse extends Article {
   author: User;
@@ -24,6 +24,7 @@ export default function ArticlePage() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const [comment, setComment] = useState("");
+  const [replyTo, setReplyTo] = useState<{ id: number; username: string } | null>(null);
 
   const { data: article } = useQuery<ArticleResponse>({
     queryKey: [`/api/articles/${id}`],
@@ -31,6 +32,11 @@ export default function ArticlePage() {
 
   const { data: comments } = useQuery<CommentResponse[]>({
     queryKey: [`/api/articles/${id}/comments`],
+  });
+
+  const { data: currentUser } = useQuery<User>({
+    queryKey: ["/api/auth/me"],
+    retry: false,
   });
 
   const { mutate: addComment } = useMutation({
@@ -43,6 +49,7 @@ export default function ArticlePage() {
         description: "Comment added successfully",
       });
       setComment("");
+      setReplyTo(null);
       queryClient.invalidateQueries({ queryKey: [`/api/articles/${id}/comments`] });
     },
     onError: (error: Error) => {
@@ -54,15 +61,12 @@ export default function ArticlePage() {
     },
   });
 
-  const { mutate: bookmark } = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", `/api/articles/${id}/bookmark`);
+  const { mutate: likeComment } = useMutation({
+    mutationFn: async (commentId: number) => {
+      await apiRequest("POST", `/api/comments/${commentId}/like`);
     },
     onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Article bookmarked",
-      });
+      queryClient.invalidateQueries({ queryKey: [`/api/articles/${id}/comments`] });
     },
     onError: (error: Error) => {
       toast({
@@ -73,11 +77,13 @@ export default function ArticlePage() {
     },
   });
 
-  const { mutate: markAsRead } = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", `/api/articles/${id}/read`);
-    },
-  });
+  const handleMention = () => {
+    if (!replyTo) return;
+    const mention = `@${replyTo.username} `;
+    if (!comment.includes(mention)) {
+      setComment(mention + comment);
+    }
+  };
 
   if (!article) {
     return <div>Loading...</div>;
@@ -87,7 +93,7 @@ export default function ArticlePage() {
     <div className="container mx-auto px-4 py-8">
       <article className="prose prose-lg max-w-none">
         <h1 className="text-4xl font-bold mb-4">{article.title}</h1>
-        
+
         <div className="flex items-center gap-4 mb-8">
           <Avatar>
             <AvatarFallback>
@@ -103,38 +109,43 @@ export default function ArticlePage() {
         </div>
 
         <div className="mb-8 whitespace-pre-wrap">{article.content}</div>
-
-        <div className="flex items-center gap-4 mb-8">
-          <Button variant="ghost" onClick={() => bookmark()}>
-            <Bookmark className="h-5 w-5 mr-2" />
-            Bookmark
-          </Button>
-          <Button variant="ghost">
-            <Heart className="h-5 w-5 mr-2" />
-            {article.likes} Likes
-          </Button>
-          <span className="text-muted-foreground">
-            {article.views} views
-          </span>
-        </div>
       </article>
 
       <div className="mt-12">
         <h2 className="text-2xl font-bold mb-6">Comments</h2>
-        
+
         <div className="mb-8">
-          <Textarea
-            placeholder="Add a comment..."
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            className="mb-4"
-          />
-          <Button
-            onClick={() => addComment({ content: comment })}
-            disabled={!comment.trim()}
-          >
-            Post Comment
-          </Button>
+          <div className="flex gap-2 mb-2">
+            <Textarea
+              placeholder={replyTo ? `Reply to ${replyTo.username}...` : "Add a comment..."}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              className="mb-4"
+            />
+            {replyTo && (
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={handleMention}
+                title="Mention user"
+              >
+                <AtSign className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => addComment({ content: comment, parentId: replyTo?.id })}
+              disabled={!comment.trim()}
+            >
+              Post Comment
+            </Button>
+            {replyTo && (
+              <Button variant="outline" onClick={() => setReplyTo(null)}>
+                Cancel Reply
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -156,17 +167,56 @@ export default function ArticlePage() {
                     </div>
                     <p className="text-sm mb-4">{comment.content}</p>
                     <div className="flex items-center gap-4">
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setReplyTo({ id: comment.id, username: comment.user.fullName })}
+                      >
                         <MessageSquare className="h-4 w-4 mr-2" />
                         Reply
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => likeComment(comment.id)}
+                      >
                         <Heart className="h-4 w-4 mr-2" />
                         {comment.likes} Likes
                       </Button>
                     </div>
                   </div>
                 </div>
+
+                {comment.replies?.map((reply) => (
+                  <div key={reply.id} className="ml-12 mt-4">
+                    <div className="flex items-start gap-4">
+                      <Avatar>
+                        <AvatarFallback>
+                          {reply.user.fullName?.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-medium">{reply.user.fullName}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true })}
+                          </span>
+                        </div>
+                        <p className="text-sm mb-4">{reply.content}</p>
+                        <div className="flex items-center gap-4">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => likeComment(reply.id)}
+                          >
+                            <Heart className="h-4 w-4 mr-2" />
+                            {reply.likes} Likes
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           ))}

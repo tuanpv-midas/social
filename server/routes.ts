@@ -174,6 +174,22 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // New endpoint to check if current user is following a specific user
+  app.get("/api/users/:id/following/check", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const followerId = (req.user as any).id;
+      const followingId = parseInt(req.params.id);
+
+      const isFollowing = await storage.isFollowing(followerId, followingId);
+      res.json(isFollowing);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Comments
   app.post("/api/articles/:id/comments", async (req, res) => {
     try {
@@ -190,7 +206,14 @@ export async function registerRoutes(app: Express) {
         userId,
         parentId: parentId || null,
       });
-      res.json(comment);
+
+      // If this is a reply, get the entire comment thread
+      if (parentId) {
+        const parentComment = await storage.getCommentWithReplies(parentId);
+        res.json(parentComment);
+      } else {
+        res.json(comment);
+      }
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -200,7 +223,16 @@ export async function registerRoutes(app: Express) {
     try {
       const articleId = parseInt(req.params.id);
       const comments = await storage.getArticleComments(articleId);
-      res.json(comments);
+
+      // For each comment, get its replies
+      const commentsWithReplies = await Promise.all(
+        comments.map(async (comment) => {
+          const replies = await storage.getReplies(comment.id);
+          return { ...comment, replies };
+        })
+      );
+
+      res.json(commentsWithReplies);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }

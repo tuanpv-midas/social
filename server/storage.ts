@@ -39,12 +39,14 @@ export interface IStorage {
   unfollowUser(followerId: number, followingId: number): Promise<void>;
   getFollowers(userId: number): Promise<User[]>;
   getFollowing(userId: number): Promise<User[]>;
+  isFollowing(followerId: number, followingId: number): Promise<boolean>;
 
   // Comments
   createComment(comment: InsertComment): Promise<Comment>;
   getArticleComments(articleId: number): Promise<Comment[]>;
   getReplies(commentId: number): Promise<Comment[]>;
   likeComment(commentId: number): Promise<void>;
+  getCommentWithReplies(commentId: number): Promise<Comment & { replies: Comment[] }>;
 
   // Bookmarks and History
   addBookmark(userId: number, articleId: number): Promise<void>;
@@ -177,6 +179,19 @@ class Storage implements IStorage {
     return result.map(r => r.user);
   }
 
+  async isFollowing(followerId: number, followingId: number): Promise<boolean> {
+    const [result] = await db
+      .select()
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerId, followerId),
+          eq(follows.followingId, followingId)
+        )
+      );
+    return !!result;
+  }
+
   // Comments
   async createComment(comment: InsertComment): Promise<Comment> {
     const [result] = await db.insert(comments).values(comment).returning();
@@ -184,19 +199,60 @@ class Storage implements IStorage {
   }
 
   async getArticleComments(articleId: number): Promise<Comment[]> {
-    return db
-      .select()
+    const result = await db
+      .select({
+        comment: comments,
+        user: users,
+      })
       .from(comments)
+      .innerJoin(users, eq(users.id, comments.userId))
       .where(and(eq(comments.articleId, articleId), sql`${comments.parentId} IS NULL`))
       .orderBy(desc(comments.createdAt));
+
+    return result.map(r => ({
+      ...r.comment,
+      user: r.user,
+    }));
   }
 
   async getReplies(commentId: number): Promise<Comment[]> {
-    return db
-      .select()
+    const result = await db
+      .select({
+        comment: comments,
+        user: users,
+      })
       .from(comments)
+      .innerJoin(users, eq(users.id, comments.userId))
       .where(eq(comments.parentId, commentId))
       .orderBy(desc(comments.createdAt));
+
+    return result.map(r => ({
+      ...r.comment,
+      user: r.user,
+    }));
+  }
+
+  async getCommentWithReplies(commentId: number): Promise<Comment & { replies: Comment[] }> {
+    const [comment] = await db
+      .select({
+        comment: comments,
+        user: users,
+      })
+      .from(comments)
+      .innerJoin(users, eq(users.id, comments.userId))
+      .where(eq(comments.id, commentId));
+
+    if (!comment) {
+      throw new Error("Comment not found");
+    }
+
+    const replies = await this.getReplies(commentId);
+
+    return {
+      ...comment.comment,
+      user: comment.user,
+      replies,
+    };
   }
 
   async likeComment(commentId: number): Promise<void> {
