@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { insertWaitlistSchema, insertUserSchema } from "@shared/schema";
 import { ZodError } from "zod";
 import { passport } from "./auth";
+import type { User } from "@shared/schema";
+import type { IVerifyOptions } from "passport-local";
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
@@ -60,9 +62,22 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/login", passport.authenticate("local"), (req, res) => {
-    const { password, ...user } = req.user as any;
-    res.json(user);
+  app.post("/api/auth/login", (req, res, next) => {
+    passport.authenticate("local", (err: Error | null, user: User | false, info: IVerifyOptions | undefined) => {
+      if (err) {
+        return next(err);
+      }
+      if (!user) {
+        return res.status(401).json({ message: info?.message || "Đăng nhập thất bại. Vui lòng kiểm tra email và mật khẩu." });
+      }
+      req.logIn(user, (err) => {
+        if (err) {
+          return next(err);
+        }
+        const { password, ...userWithoutPassword } = user;
+        return res.json(userWithoutPassword);
+      });
+    })(req, res, next);
   });
 
   app.post("/api/auth/logout", (req, res) => {
@@ -86,13 +101,30 @@ export async function registerRoutes(app: Express) {
         return res.status(401).json({ message: "Not authenticated" });
       }
       const authorId = (req.user as any).id;
-      const { title, content } = req.body;
+      
+      // Validate article data
+      const { title, content, tags } = req.body;
+      if (!title || typeof title !== 'string') {
+        return res.status(400).json({ message: "Title is required and must be a string" });
+      }
+      if (!content || typeof content !== 'string') {
+        return res.status(400).json({ message: "Content is required and must be a string" });
+      }
+
+      // Validate tags if provided
+      const validatedTags = Array.isArray(tags) ? tags.filter(tag => typeof tag === 'string') : [];
 
       const article = await storage.createArticle({
-        title,
+        title, // Use original title with HTML
         content,
         authorId,
         status: "published",
+        views: 0,
+        likes: 0,
+        likedBy: [],
+        bookmarkedBy: [],
+        viewedBy: [],
+        tags: validatedTags,
       });
 
       res.json(article);
@@ -251,6 +283,46 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Like/unlike article
+  app.post("/api/articles/:id/like", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const userId = (req.user as any).id;
+      const articleId = parseInt(req.params.id);
+
+      const article = await storage.getArticleById(articleId);
+      if (!article) {
+        return res.status(404).json({ message: "Article not found" });
+      }
+
+      // Check if user has already liked the article
+      const likedBy = (article.likedBy as number[]) || [];
+      const userIndex = likedBy.indexOf(userId);
+      
+      if (userIndex === -1) {
+        // User hasn't liked the article yet, add like
+        likedBy.push(userId);
+        await storage.updateArticle(articleId, { 
+          likedBy,
+          likes: (article.likes || 0) + 1
+        });
+        res.json({ message: "Article liked successfully" });
+      } else {
+        // User already liked the article, remove like
+        likedBy.splice(userIndex, 1);
+        await storage.updateArticle(articleId, { 
+          likedBy,
+          likes: Math.max(0, (article.likes || 0) - 1)
+        });
+        res.json({ message: "Article unliked successfully" });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Bookmarks
   app.post("/api/articles/:id/bookmark", async (req, res) => {
     try {
@@ -260,27 +332,33 @@ export async function registerRoutes(app: Express) {
       const userId = (req.user as any).id;
       const articleId = parseInt(req.params.id);
 
-      await storage.addBookmark(userId, articleId);
-      res.json({ message: "Article bookmarked successfully" });
-    } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.delete("/api/articles/:id/bookmark", async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
+      const article = await storage.getArticleById(articleId);
+      if (!article) {
+        return res.status(404).json({ message: "Article not found" });
       }
-      const userId = (req.user as any).id;
-      const articleId = parseInt(req.params.id);
 
-      await storage.removeBookmark(userId, articleId);
-      res.json({ message: "Bookmark removed successfully" });
+      // Check if user has already bookmarked the article
+      const bookmarkedBy = (article.bookmarkedBy as number[]) || [];
+      const userIndex = bookmarkedBy.indexOf(userId);
+      
+      if (userIndex === -1) {
+        // User hasn't bookmarked the article yet, add bookmark
+        bookmarkedBy.push(userId);
+        await storage.updateArticle(articleId, { bookmarkedBy });
+        await storage.addBookmark(userId, articleId);
+        res.json({ message: "Article bookmarked successfully" });
+      } else {
+        // User already bookmarked the article, remove bookmark
+        bookmarkedBy.splice(userIndex, 1);
+        await storage.updateArticle(articleId, { bookmarkedBy });
+        await storage.removeBookmark(userId, articleId);
+        res.json({ message: "Bookmark removed successfully" });
+      }
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+
 
   app.get("/api/me/bookmarks", async (req, res) => {
     try {
@@ -296,7 +374,7 @@ export async function registerRoutes(app: Express) {
   });
 
   // Reading History
-  app.post("/api/articles/:id/read", async (req, res) => {
+  app.post("/api/articles/:id/view", async (req, res) => {
     try {
       if (!req.user) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -304,9 +382,21 @@ export async function registerRoutes(app: Express) {
       const userId = (req.user as any).id;
       const articleId = parseInt(req.params.id);
 
-      await storage.addToReadingHistory(userId, articleId);
-      await storage.incrementArticleViews(articleId);
-      res.json({ message: "Reading history updated successfully" });
+      const article = await storage.getArticleById(articleId);
+      if (!article) {
+        return res.status(404).json({ message: "Article not found" });
+      }
+
+      // Check if user has already viewed the article
+      const viewedBy = (article.viewedBy as number[]) || [];
+      if (!viewedBy.includes(userId)) {
+        viewedBy.push(userId);
+        await storage.updateArticle(articleId, { viewedBy });
+        await storage.incrementArticleViews(articleId);
+        await storage.addToReadingHistory(userId, articleId);
+      }
+      
+      res.json({ message: "View count updated successfully" });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }

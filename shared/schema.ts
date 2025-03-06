@@ -2,6 +2,12 @@ import { pgTable, text, serial, timestamp, boolean, integer, jsonb } from "drizz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const sessions = pgTable("session", {
+  sid: text("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
+
 export const waitlist = pgTable("waitlist", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull(),
@@ -65,11 +71,15 @@ export const articles = pgTable("articles", {
   status: text("status", { enum: ["draft", "published", "archived"] }).default("draft").notNull(),
   views: integer("views").default(0).notNull(),
   likes: integer("likes").default(0).notNull(),
+  likedBy: jsonb("liked_by").default([]).notNull(),
+  bookmarkedBy: jsonb("bookmarked_by").default([]).notNull(),
+  viewedBy: jsonb("viewed_by").default([]).notNull(),
+  tags: jsonb("tags").default([]).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const comments = pgTable("comments", {
+export const comments: any = pgTable("comments", {
   id: serial("id").primaryKey(),
   content: text("content").notNull(),
   articleId: integer("article_id").notNull().references(() => articles.id),
@@ -156,6 +166,9 @@ export type InsertUserBadge = typeof userBadges.$inferInsert;
 
 export type SupportTicket = typeof supportTickets.$inferSelect;
 export type InsertSupportTicket = typeof supportTickets.$inferInsert;
+
+export type Session = typeof sessions.$inferSelect;
+export type InsertSession = typeof sessions.$inferInsert;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;

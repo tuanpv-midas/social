@@ -94,8 +94,15 @@ class Storage implements IStorage {
 
   // Article management
   async createArticle(article: InsertArticle): Promise<Article> {
-    const [result] = await db.insert(articles).values(article).returning();
-    return result;
+    try {
+      console.log("Creating article with data:", JSON.stringify(article));
+      const [result] = await db.insert(articles).values(article).returning();
+      console.log("Article created successfully:", JSON.stringify(result));
+      return result;
+    } catch (error) {
+      console.error("Error in createArticle:", error);
+      throw error; // Re-throw to allow proper error handling in the route
+    }
   }
 
   async getArticleById(id: number): Promise<Article | undefined> {
@@ -124,19 +131,25 @@ class Storage implements IStorage {
   }
 
   async getAllArticles(): Promise<Article[]> {
-    const result = await db
-      .select({
-        article: articles,
-        author: users,
-      })
-      .from(articles)
-      .innerJoin(users, eq(users.id, articles.authorId))
-      .orderBy(desc(articles.createdAt));
+    try {
+      const result = await db
+        .select({
+          article: articles,
+          author: users,
+        })
+        .from(articles)
+        .innerJoin(users, eq(users.id, articles.authorId))
+        .orderBy(desc(articles.createdAt));
 
-    return result.map(r => ({
-      ...r.article,
-      author: r.author,
-    }));
+      return result.map(r => ({
+        ...r.article,
+        author: r.author,
+      }));
+    } catch (error) {
+      console.error("Error in getAllArticles:", error);
+      // Return empty array instead of throwing error
+      return [];
+    }
   }
 
   // Social features
